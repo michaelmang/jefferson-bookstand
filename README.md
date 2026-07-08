@@ -4,6 +4,8 @@ A 3D recreation of Thomas Jefferson's revolving bookstand (the one at Monticello
 of the five rests holds a PDF instead of a book — now with a small society of curators around
 it. Built with Next.js, React, TypeScript, Three.js, React Three Fiber, and SQLite.
 
+<img width="799" height="394" alt="image" src="https://github.com/user-attachments/assets/b5b01489-2e11-4634-b6fa-2fa1dfc06385" />
+
 ## The idea
 
 Jefferson's stand let him keep five books open at once — but only the one facing him was
