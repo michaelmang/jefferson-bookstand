@@ -120,7 +120,14 @@ riding through a server action — Vercel Serverless Functions cap request bodie
 - `app/mine/page.tsx` — your posting history with search and pagination.
 - `app/studio/page.tsx` — the 3D studio where you build and post your stand.
 - `app/stand/[id]/page.tsx` — a posted stand: spin it, read it, stamp it, write letters.
-  Curators get the owner view: stamps received, letters to you, and takedown.
+  Curators get the owner view: stamps received, letters to you, and takedown. Signed-out
+  visitors (and link-unfurl bots) see a preview gate instead — title, curator, room, and
+  paper count, never the papers or letters — with a sign-in prompt to go further.
+- `app/icon.tsx` / `apple-icon.tsx` — a generated wax-seal favicon (no image assets).
+- `app/opengraph-image.tsx` — the site-wide social preview card. Each stand generates its
+  own at `app/stand/[id]/opengraph-image.tsx` (title, curator, room, paper count), and
+  `generateMetadata` on the stand page keeps `og:title`/`og:description` in sync — Next
+  doesn't inherit those from the plain `title`/`description` automatically.
 - `app/actions.ts` — server actions: post stand, stamp stand/rest, write letter, sign out.
 - `app/api/auth/*` — Google Identity Services token verification (+ dev-only name login).
 - `app/api/files/[...path]` — serves uploaded PDFs to signed-in readers.

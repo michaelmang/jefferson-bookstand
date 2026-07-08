@@ -481,6 +481,22 @@ body {
   line-height: 1.4;
 }
 
+.preview-byline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 14px !important;
+  font-size: 13px !important;
+  color: #6b5f4b;
+}
+
+.preview-byline .avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
 .signin {
   display: flex;
   flex-direction: column;
