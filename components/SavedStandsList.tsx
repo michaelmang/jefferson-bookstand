@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { postStand, takeDownStand } from "@/app/actions";
+import { uploadPdf } from "@/lib/clientUpload";
 import type { AudioSettings } from "@/lib/standState";
 import {
   deleteStand,
@@ -163,13 +164,22 @@ export default function SavedStandsList({
     try {
       const stand = await getStand(name);
       if (!stand) return;
+      // Upload straight to Blob first — Serverless Functions cap request
+      // bodies well under what five PDFs can total, so the server action
+      // below only ever sees the resulting URLs.
+      const uploaded = await Promise.all(
+        stand.slots.map((slot) =>
+          slot ? uploadPdf(new File([slot.blob], slot.name, { type: "application/pdf" })) : null,
+        ),
+      );
       const formData = new FormData();
       formData.set("title", stand.name.slice(0, 80));
       formData.set("background", stand.background ?? "library");
       formData.set("audio", JSON.stringify(stand.audio ?? {}));
       stand.slots.forEach((slot, index) => {
-        if (!slot) return;
-        formData.set(`pdf${index}`, new File([slot.blob], slot.name, { type: "application/pdf" }));
+        const url = uploaded[index];
+        if (!slot || !url) return;
+        formData.set(`pdf${index}`, url);
         formData.set(`title${index}`, slot.name);
       });
       const result = await postStand(formData);

@@ -8,8 +8,11 @@ const nextConfig: NextConfig = {
   },
   serverExternalPackages: ["@libsql/client", "libsql"],
   experimental: {
-    // Posted stands upload up to five PDFs plus a background and a music track.
-    proxyClientMaxBodySize: "100mb",
+    // Note: this only affects Next's own dev/proxy body handling, not
+    // Vercel's platform-level Serverless Function payload cap (~4.5MB) —
+    // that's why PDFs upload client-side straight to Blob (see
+    // lib/clientUpload.ts) instead of riding through a server action.
+    proxyClientMaxBodySize: "10mb",
   },
 };
 

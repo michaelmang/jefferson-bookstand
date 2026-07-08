@@ -4,11 +4,10 @@ import type { Client, InValue } from "@libsql/client";
 import { revalidatePath } from "next/cache";
 import { clearSession, getSessionUser } from "@/lib/server/auth";
 import { getDb } from "@/lib/server/db";
-import { deleteUpload, saveUpload } from "@/lib/server/uploads";
+import { deleteUpload } from "@/lib/server/uploads";
 import { backgroundById, sanitizeAudioSettings } from "@/lib/standState";
 import { SLOT_COUNT } from "@/lib/slots";
 
-const MAX_PDF_BYTES = 18 * 1024 * 1024;
 const MAX_TITLE_LENGTH = 80;
 const MAX_LETTER_LENGTH = 500;
 
@@ -22,23 +21,35 @@ async function query<T>(db: Client, sql: string, args: InValue[] = []): Promise<
   return rs.rows as unknown as T[];
 }
 
-type RestUpload = { idx: number; title: string; file: File };
+/**
+ * The browser uploads PDFs to Vercel Blob directly (see /api/blob-upload) —
+ * Serverless Functions cap request bodies around 4.5MB, far below the 18MB
+ * a single rest allows, so raw file bytes never touch this action. It only
+ * ever receives the resulting URLs, which is why this checks the hostname
+ * rather than a file type or size.
+ */
+function isTrustedUploadUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && hostname.endsWith(".public.blob.vercel-storage.com");
+  } catch {
+    return false;
+  }
+}
 
-/** Pulls pdf0..pdf4 (+ title0..title4) out of a form and validates them. */
+type RestUpload = { idx: number; title: string; url: string };
+
+/** Pulls pdf0..pdf4 (+ title0..title4) out of a form as already-uploaded Blob URLs. */
 function parseRestUploads(
   formData: FormData,
 ): { ok: true; uploads: RestUpload[] } | { ok: false; error: string } {
   const uploads: RestUpload[] = [];
   for (let idx = 0; idx < SLOT_COUNT; idx++) {
-    const file = formData.get(`pdf${idx}`);
-    if (!(file instanceof File) || file.size === 0) continue;
-    if (file.type !== "application/pdf") return { ok: false, error: "Only PDFs can rest here." };
-    if (file.size > MAX_PDF_BYTES) {
-      return { ok: false, error: `"${file.name}" is too large (18 MB max).` };
-    }
-    const slotTitle =
-      String(formData.get(`title${idx}`) ?? "").trim() || file.name || `Rest ${idx + 1}`;
-    uploads.push({ idx, title: slotTitle.slice(0, 120), file });
+    const url = formData.get(`pdf${idx}`);
+    if (typeof url !== "string" || !url) continue;
+    if (!isTrustedUploadUrl(url)) return { ok: false, error: "That upload wasn't recognized." };
+    const slotTitle = String(formData.get(`title${idx}`) ?? "").trim() || `Rest ${idx + 1}`;
+    uploads.push({ idx, title: slotTitle.slice(0, 120), url });
   }
   if (uploads.length === 0) {
     return { ok: false, error: "Rest at least one paper on the stand before posting." };
@@ -99,15 +110,6 @@ export async function postStand(
   const parsed = parseRestUploads(formData);
   if (!parsed.ok) return parsed;
 
-  const saved: { idx: number; title: string; path: string }[] = [];
-  for (const upload of parsed.uploads) {
-    saved.push({
-      idx: upload.idx,
-      title: upload.title,
-      path: await saveUpload("pdfs", upload.file),
-    });
-  }
-
   const db = await getDb();
   const tx = await db.transaction("write");
   let standId: number;
@@ -117,10 +119,10 @@ export async function postStand(
       args: [user.id, title, Date.now(), background, audioJson],
     });
     standId = Number(result.lastInsertRowid);
-    for (const slot of saved) {
+    for (const slot of parsed.uploads) {
       await tx.execute({
         sql: "INSERT INTO slots (stand_id, idx, title, pdf_path) VALUES (?, ?, ?, ?)",
-        args: [standId, slot.idx, slot.title, slot.path],
+        args: [standId, slot.idx, slot.title, slot.url],
       });
     }
     await tx.commit();
@@ -146,15 +148,11 @@ export async function updateStandSlot(
   if (!Number.isInteger(idx) || idx < 0 || idx >= SLOT_COUNT) {
     return { ok: false, error: "No such rest." };
   }
-  const file = formData.get("pdf");
-  if (!(file instanceof File) || file.size === 0 || file.type !== "application/pdf") {
-    return { ok: false, error: "Only PDFs can rest here." };
+  const url = formData.get("pdf");
+  if (typeof url !== "string" || !isTrustedUploadUrl(url)) {
+    return { ok: false, error: "That upload wasn't recognized." };
   }
-  if (file.size > MAX_PDF_BYTES) {
-    return { ok: false, error: `"${file.name}" is too large (18 MB max).` };
-  }
-  const title = (String(formData.get("title") ?? "").trim() || file.name).slice(0, 120);
-  const rel = await saveUpload("pdfs", file);
+  const title = (String(formData.get("title") ?? "").trim() || "Untitled").slice(0, 120);
 
   const db = await getDb();
   const [old] = await query<{ id: number; pdf_path: string }>(
@@ -165,7 +163,7 @@ export async function updateStandSlot(
   if (old) await deleteSlotRow(db, Number(old.id));
   await db.execute({
     sql: "INSERT INTO slots (stand_id, idx, title, pdf_path) VALUES (?, ?, ?, ?)",
-    args: [standId, idx, title, rel],
+    args: [standId, idx, title, url],
   });
   if (old) await deleteUpload(old.pdf_path);
 
@@ -220,15 +218,6 @@ export async function replaceStandRests(
   const parsed = parseRestUploads(formData);
   if (!parsed.ok) return parsed;
 
-  const saved: { idx: number; title: string; path: string }[] = [];
-  for (const upload of parsed.uploads) {
-    saved.push({
-      idx: upload.idx,
-      title: upload.title,
-      path: await saveUpload("pdfs", upload.file),
-    });
-  }
-
   const db = await getDb();
   const oldPaths = (
     await query<{ pdf_path: string }>(db, "SELECT pdf_path FROM slots WHERE stand_id = ?", [
@@ -242,10 +231,10 @@ export async function replaceStandRests(
       args: [standId],
     });
     await tx.execute({ sql: "DELETE FROM slots WHERE stand_id = ?", args: [standId] });
-    for (const slot of saved) {
+    for (const slot of parsed.uploads) {
       await tx.execute({
         sql: "INSERT INTO slots (stand_id, idx, title, pdf_path) VALUES (?, ?, ?, ?)",
-        args: [standId, slot.idx, slot.title, slot.path],
+        args: [standId, slot.idx, slot.title, slot.url],
       });
     }
     await tx.commit();

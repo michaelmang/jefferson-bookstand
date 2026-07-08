@@ -20,6 +20,7 @@ import {
   writeLetter,
 } from "@/app/actions";
 import type { StandDetail } from "@/lib/server/feed";
+import { uploadPdf } from "@/lib/clientUpload";
 import { renderPdfPreview } from "@/lib/pdfPreview";
 import { SLOT_LABELS, TOP_SLOT, type SlotView } from "@/lib/slots";
 import {
@@ -211,15 +212,20 @@ export default function StandViewer({ detail }: { detail: StandDetail }) {
     event.target.value = "";
     if (!file || index === null) return;
     startEdit(async () => {
-      const formData = new FormData();
-      formData.set("pdf", file);
-      formData.set("title", file.name);
-      const result = await updateStandSlot(detail.id, index, formData);
-      if (result.ok) {
-        showToast(`${SLOT_LABELS[index]} re-papered.`);
-        router.refresh();
-      } else {
-        showToast(result.error);
+      try {
+        const url = await uploadPdf(file);
+        const formData = new FormData();
+        formData.set("pdf", url);
+        formData.set("title", file.name);
+        const result = await updateStandSlot(detail.id, index, formData);
+        if (result.ok) {
+          showToast(`${SLOT_LABELS[index]} re-papered.`);
+          router.refresh();
+        } else {
+          showToast(result.error);
+        }
+      } catch {
+        showToast("Couldn't upload that PDF.");
       }
     });
   };
@@ -241,18 +247,28 @@ export default function StandViewer({ detail }: { detail: StandDetail }) {
       showToast(`“${stored.name}” has no papers to load.`);
       return;
     }
-    const formData = new FormData();
-    stored.slots.forEach((slot, index) => {
-      if (!slot) return;
-      formData.set(`pdf${index}`, new File([slot.blob], slot.name, { type: "application/pdf" }));
-      formData.set(`title${index}`, slot.name);
-    });
-    const result = await replaceStandRests(detail.id, formData);
-    if (result.ok) {
-      showToast(`Loaded “${stored.name}” onto the stand.`);
-      router.refresh();
-    } else {
-      showToast(result.error);
+    try {
+      const uploaded = await Promise.all(
+        stored.slots.map((slot) =>
+          slot ? uploadPdf(new File([slot.blob], slot.name, { type: "application/pdf" })) : null,
+        ),
+      );
+      const formData = new FormData();
+      stored.slots.forEach((slot, index) => {
+        const url = uploaded[index];
+        if (!slot || !url) return;
+        formData.set(`pdf${index}`, url);
+        formData.set(`title${index}`, slot.name);
+      });
+      const result = await replaceStandRests(detail.id, formData);
+      if (result.ok) {
+        showToast(`Loaded “${stored.name}” onto the stand.`);
+        router.refresh();
+      } else {
+        showToast(result.error);
+      }
+    } catch {
+      showToast("Couldn't upload those PDFs.");
     }
   };
 

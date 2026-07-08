@@ -85,21 +85,23 @@ Posted stands live in `data/` (SQLite + uploaded PDFs), which is gitignored.
 Pushes to `main` auto-deploy via Vercel's GitHub integration. Vercel's filesystem is
 ephemeral, so production storage is external; locally everything falls back to `data/`:
 
-| Env var                        | What it does                                                            |
-| ------------------------------ | ----------------------------------------------------------------------- |
+| Env var                        | What it does                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                 | libSQL URL. Unset → local `data/bookstand.db`. Prod: a [Turso](https://turso.tech) DB (`libsql://…`) |
-| `DATABASE_AUTH_TOKEN`          | Turso auth token                                                        |
-| `BLOB_READ_WRITE_TOKEN`        | [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) token; unset → PDFs on local disk |
-| `AUTH_SECRET`                  | Session-cookie signing key (required in production)                     |
-| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Web client ID (unset → dev name-login, disabled in prod)   |
+| `DATABASE_AUTH_TOKEN`          | Turso auth token                                                                                     |
+| `BLOB_READ_WRITE_TOKEN`        | [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) token; unset → PDFs on local disk         |
+| `AUTH_SECRET`                  | Session-cookie signing key (required in production)                                                  |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Web client ID (unset → dev name-login, disabled in prod)                                |
 
 One-time setup: create a Turso database (`turso db create jefferson-bookstand`, then
 `turso db show --url` / `turso db tokens create`), add a Blob store to the Vercel project
 (Storage tab — this injects `BLOB_READ_WRITE_TOKEN` automatically), and set the variables
 in the Vercel project settings. The schema creates itself on first request.
 
-> **Caveat**: Vercel serverless requests cap bodies at ~4.5 MB, so PDFs posted in
-> production must be modest until uploads move to client→Blob direct uploads.
+PDFs upload directly from the browser to Vercel Blob (`lib/clientUpload.ts` +
+`app/api/blob-upload/route.ts`, using `@vercel/blob/client`'s token flow) rather than
+riding through a server action — Vercel Serverless Functions cap request bodies around
+4.5 MB, well under what five 18 MB rests would total.
 
 ## Scripts
 
