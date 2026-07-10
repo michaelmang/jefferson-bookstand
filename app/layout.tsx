@@ -21,6 +21,9 @@ export const metadata: Metadata = {
     description:
       "Curate five papers a day on a spinning bookstand, and share it with a reading society.",
   },
+  verification: {
+    google: "uhfJzeNk7rNMvUFE6Y1LYudFlvIR8OXTbolQlDO5eJM",
+  },
   twitter: {
     card: "summary_large_image",
     title: "Jefferson's Revolving Bookstand",
